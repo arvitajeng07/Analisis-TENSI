@@ -1,0 +1,136 @@
+# ================================================
+#  SISTEM DETEKSI ANOMALI TEKANAN DARAH
+#  DATA POSYANDU / PUSKESMAS
+#  Google Colab Version
+# ================================================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from google.colab import files
+from IPython.display import Audio, display
+
+# ------------------------------------------------
+# 1. UPLOAD DATA
+# ------------------------------------------------
+print("Silakan upload file data tensi (CSV/Excel)...")
+uploaded = files.upload()
+
+filename = list(uploaded.keys())[0]
+
+if filename.endswith('.csv'):
+    df = pd.read_csv(filename)
+else:
+    df = pd.read_excel(filename, header=1)
+
+print("\nData berhasil dimuat:")
+display(df.head())
+
+# ------------------------------------------------
+# 2. PREPROCESSING DATA
+# ------------------------------------------------
+df['Tanggal'] = pd.to_datetime(df['Tanggal'])
+df = df.sort_values('Tanggal')
+df.reset_index(drop=True, inplace=True)
+
+# ------------------------------------------------
+# 3. VISUALISASI GRAFIK TEKANAN DARAH
+# ------------------------------------------------
+plt.figure(figsize=(12,5))
+plt.plot(df['Tanggal'], df['Systolic'], label='Systolic', linewidth=2)
+plt.plot(df['Tanggal'], df['Diastolic'], label='Diastolic', linewidth=2)
+plt.title("Grafik Tekanan Darah Masyarakat")
+plt.xlabel("Tanggal")
+plt.ylabel("Tekanan Darah (mmHg)")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# ------------------------------------------------
+# 4. DETEKSI ANOMALI
+# ------------------------------------------------
+
+# ---- Metode 1: Threshold Medis WHO ----
+df['Anomali_Threshold'] = (
+    (df['Systolic'] >= 160) |
+    (df['Diastolic'] >= 100)
+)
+
+# ---- Metode 2: Z-Score Outlier ----
+def zscore(series):
+    return (series - series.mean()) / series.std()
+
+df['Z_Sys'] = zscore(df['Systolic'])
+df['Z_Dia'] = zscore(df['Diastolic'])
+
+df['Anomali_Zscore'] = (
+    (abs(df['Z_Sys']) > 2.5) |
+    (abs(df['Z_Dia']) > 2.5)
+)
+
+# ---- Metode 3: Lonjakan Mendadak (Early Warning) ----
+df['Delta_Sys'] = df['Systolic'].diff().abs()
+df['Delta_Dia'] = df['Diastolic'].diff().abs()
+
+df['Anomali_Lonjakan'] = (
+    (df['Delta_Sys'] > 20) |
+    (df['Delta_Dia'] > 15)
+)
+
+# ---- Gabungan Semua ----
+df['Anomali_Total'] = (
+    df['Anomali_Threshold'] |
+    df['Anomali_Zscore'] |
+    df['Anomali_Lonjakan']
+)
+
+anomali_df = df[df['Anomali_Total']]
+
+print("\n🔎 Jumlah anomali terdeteksi:", len(anomali_df))
+display(anomali_df)
+
+# ------------------------------------------------
+# 5. ALARM JIKA ADA ANOMALI
+# ------------------------------------------------
+if len(anomali_df) > 0:
+    print("\n🚨 ADA ANOMALI! Mohon cek data yang ditandai.")
+
+    sr = 44100       # sample rate
+    duration = 1      # durasi tiap bunyi 1 detik
+    repeats = 3       # bunyi diulang 3 kali
+    freq = 1000       # frekuensi nada 1000 Hz (normal, terdengar jelas)
+
+    t = np.linspace(0, duration, int(sr*duration))
+    single_alarm = 0.5 * np.sin(2 * np.pi * freq * t)
+
+    # Buat alarm berulang dengan jeda pendek
+    pause = np.zeros(int(0.2*sr))  # jeda 0.2 detik
+    alarm_total = np.array([])
+    for _ in range(repeats):
+        alarm_total = np.concatenate((single_alarm, pause))
+
+    display(Audio(alarm_total, rate=sr, autoplay=True))
+
+else:
+    print("\n✔ Tidak ada anomali. Semua tekanan darah normal.")
+
+# ------------------------------------------------
+# 6. VISUALISASI GRAFIK + TITIK ANOMALI
+# ------------------------------------------------
+plt.figure(figsize=(12,5))
+plt.plot(df['Tanggal'], df['Systolic'], label='Systolic', linewidth=2)
+plt.plot(df['Tanggal'], df['Diastolic'], label='Diastolic', linewidth=2)
+
+# titik merah untuk anomali
+plt.scatter(anomali_df['Tanggal'], anomali_df['Systolic'], color='red', s=80, label='Anomali')
+
+plt.title("Grafik Tekanan Darah + Deteksi Anomali")
+plt.xlabel("Tanggal")
+plt.ylabel("Tekanan Darah (mmHg)")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# =================================================
+# END OF SYSTEM
+# =================================================
